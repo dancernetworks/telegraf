@@ -37,6 +37,14 @@ type Parser struct {
 	objectConfig Object
 }
 
+func (p *Parser) IsMultiline() bool {
+	panic("implement me")
+}
+
+func (p *Parser) IsNewLogLine(line string) (bool, error) {
+	panic("implement me")
+}
+
 type Config struct {
 	MeasurementName     string `toml:"measurement_name"`      // OPTIONAL
 	MeasurementNamePath string `toml:"measurement_name_path"` // OPTIONAL

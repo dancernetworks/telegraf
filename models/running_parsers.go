@@ -88,6 +88,14 @@ func (r *RunningParser) ParseLine(line string) (telegraf.Metric, error) {
 	return m, err
 }
 
+func (p *RunningParser) IsMultiline() bool {
+	return false
+}
+
+func (p *RunningParser) IsNewLogLine(line string) (bool, error) {
+	return false, nil
+}
+
 func (r *RunningParser) SetDefaultTags(tags map[string]string) {
 	r.Parser.SetDefaultTags(tags)
 }

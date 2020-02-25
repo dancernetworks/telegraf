@@ -1,39 +1,34 @@
-//go:generate ../../../tools/readme_config_includer/generator
-//go:build windows
+// +build windows
 
 package win_services
 
 import (
-	_ "embed"
-	"errors"
 	"fmt"
-	"io/fs"
-
-	"golang.org/x/sys/windows/svc"
-	"golang.org/x/sys/windows/svc/mgr"
+	"os"
+	"syscall"
+	"unsafe"
 
 	"github.com/influxdata/telegraf"
 	"github.com/influxdata/telegraf/filter"
 	"github.com/influxdata/telegraf/plugins/inputs"
+	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/svc"
+	"golang.org/x/sys/windows/svc/mgr"
 )
 
-//go:embed sample.conf
-var sampleConfig string
-
-type ServiceError struct {
+type ServiceErr struct {
 	Message string
 	Service string
 	Err     error
 }
 
-func (e *ServiceError) Error() string {
-	return fmt.Sprintf("%s: %q: %v", e.Message, e.Service, e.Err)
+func (e *ServiceErr) Error() string {
+	return fmt.Sprintf("%s: '%s': %v", e.Message, e.Service, e.Err)
 }
 
 func IsPermission(err error) bool {
-	var serviceErr *ServiceError
-	if errors.As(err, &serviceErr) {
-		return errors.Is(serviceErr, fs.ErrPermission)
+	if err, ok := err.(*ServiceErr); ok {
+		return os.IsPermission(err.Err)
 	}
 	return false
 }
@@ -81,17 +76,28 @@ func (rmr *MgProvider) Connect() (WinServiceManager, error) {
 	scmgr, err := mgr.Connect()
 	if err != nil {
 		return nil, err
+	} else {
+		return &WinSvcMgr{scmgr}, nil
 	}
-	return &WinSvcMgr{scmgr}, nil
 }
 
-// WinServices is an implementation if telegraf.Input interface, providing info about Windows Services
+var sampleConfig = `
+  ## Names of the services to monitor. Leave empty to monitor all the available services on the host. Globs accepted.
+  service_names = [
+    "LanmanServer",
+	"TermService",
+	"Win*",
+  ]
+`
+
+var description = "Input plugin to report Windows services info."
+
+//WinServices is an implementation if telegraf.Input interface, providing info about Windows Services
 type WinServices struct {
 	Log telegraf.Logger
 
-	ServiceNames         []string `toml:"service_names"`
-	ServiceNamesExcluded []string `toml:"excluded_service_names"`
-	mgrProvider          ManagerProvider
+	ServiceNames []string `toml:"service_names"`
+	mgrProvider  ManagerProvider
 
 	servicesFilter filter.Filter
 }
@@ -103,13 +109,9 @@ type ServiceInfo struct {
 	StartUpMode int
 }
 
-func (*WinServices) SampleConfig() string {
-	return sampleConfig
-}
-
 func (m *WinServices) Init() error {
 	var err error
-	m.servicesFilter, err = filter.NewIncludeExcludeFilter(m.ServiceNames, m.ServiceNamesExcluded)
+	m.servicesFilter, err = filter.NewIncludeExcludeFilter(m.ServiceNames, nil)
 	if err != nil {
 		return err
 	}
@@ -117,10 +119,18 @@ func (m *WinServices) Init() error {
 	return nil
 }
 
+func (m *WinServices) Description() string {
+	return description
+}
+
+func (m *WinServices) SampleConfig() string {
+	return sampleConfig
+}
+
 func (m *WinServices) Gather(acc telegraf.Accumulator) error {
 	scmgr, err := m.mgrProvider.Connect()
 	if err != nil {
-		return fmt.Errorf("could not open service manager: %w", err)
+		return fmt.Errorf("Could not open service manager: %s", err)
 	}
 	defer scmgr.Disconnect()
 
@@ -130,7 +140,7 @@ func (m *WinServices) Gather(acc telegraf.Accumulator) error {
 	}
 
 	for _, srvName := range serviceNames {
-		service, err := collectServiceInfo(scmgr, srvName)
+		service, err := m.collectServiceInfo(scmgr, srvName)
 		if err != nil {
 			if IsPermission(err) {
 				m.Log.Debug(err.Error())
@@ -143,15 +153,17 @@ func (m *WinServices) Gather(acc telegraf.Accumulator) error {
 		tags := map[string]string{
 			"service_name": service.ServiceName,
 		}
-		//display name could be empty, but still valid service
-		if len(service.DisplayName) > 0 {
-			tags["display_name"] = service.DisplayName
-		}
 
 		fields := map[string]interface{}{
 			"state":        service.State,
 			"startup_mode": service.StartUpMode,
 		}
+
+		//display name could be empty, but still valid service
+		if len(service.DisplayName) > 0 {
+			fields["display_name"] = service.DisplayName
+		}
+
 		acc.AddFields("win_services", fields, tags)
 	}
 
@@ -162,7 +174,7 @@ func (m *WinServices) Gather(acc telegraf.Accumulator) error {
 func (m *WinServices) listServices(scmgr WinServiceManager) ([]string, error) {
 	names, err := scmgr.ListServices()
 	if err != nil {
-		return nil, fmt.Errorf("could not list services: %w", err)
+		return nil, fmt.Errorf("Could not list services: %s", err)
 	}
 
 	var services []string
@@ -176,10 +188,10 @@ func (m *WinServices) listServices(scmgr WinServiceManager) ([]string, error) {
 }
 
 // collectServiceInfo gathers info about a service.
-func collectServiceInfo(scmgr WinServiceManager, serviceName string) (*ServiceInfo, error) {
+func (m *WinServices) collectServiceInfo(scmgr WinServiceManager, serviceName string) (*ServiceInfo, error) {
 	srv, err := scmgr.OpenService(serviceName)
 	if err != nil {
-		return nil, &ServiceError{
+		return nil, &ServiceErr{
 			Message: "could not open service",
 			Service: serviceName,
 			Err:     err,
@@ -189,29 +201,47 @@ func collectServiceInfo(scmgr WinServiceManager, serviceName string) (*ServiceIn
 
 	srvStatus, err := srv.Query()
 	if err != nil {
-		return nil, &ServiceError{
+		return nil, &ServiceErr{
 			Message: "could not query service",
 			Service: serviceName,
 			Err:     err,
 		}
 	}
 
-	srvCfg, err := srv.Config()
+	displayName, startType, err := DisplayNameStartType(srv.(*mgr.Service))
 	if err != nil {
-		return nil, &ServiceError{
-			Message: "could not get config of service",
-			Service: serviceName,
-			Err:     err,
-		}
+		m.Log.Warnf("Could not get config of service %s: %s", serviceName, err)
+		displayName = fmt.Sprintf("Could not get config of service %s", serviceName)
 	}
 
 	serviceInfo := &ServiceInfo{
 		ServiceName: serviceName,
-		DisplayName: srvCfg.DisplayName,
-		StartUpMode: int(srvCfg.StartType),
+		DisplayName: displayName,
+		StartUpMode: int(startType),
 		State:       int(srvStatus.State),
 	}
 	return serviceInfo, nil
+}
+
+func DisplayNameStartType(s *mgr.Service) (string, uint32, error) {
+	var p *windows.QUERY_SERVICE_CONFIG
+	n := uint32(1024)
+	for {
+		b := make([]byte, n)
+		p = (*windows.QUERY_SERVICE_CONFIG)(unsafe.Pointer(&b[0]))
+		err := windows.QueryServiceConfig(s.Handle, p, n, &n)
+		if err == nil {
+			break
+		}
+		if err.(syscall.Errno) != syscall.ERROR_INSUFFICIENT_BUFFER {
+			return "", 0, err
+		}
+		if n <= uint32(len(b)) {
+			return "", 0, err
+		}
+	}
+
+	return windows.UTF16PtrToString(p.DisplayName), p.StartType, nil
 }
 
 func init() {

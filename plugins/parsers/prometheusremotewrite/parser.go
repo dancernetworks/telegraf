@@ -17,6 +17,14 @@ type Parser struct {
 	DefaultTags map[string]string
 }
 
+func (p *Parser) IsMultiline() bool {
+	panic("implement me")
+}
+
+func (p *Parser) IsNewLogLine(line string) (bool, error) {
+	panic("implement me")
+}
+
 func (p *Parser) Parse(buf []byte) ([]telegraf.Metric, error) {
 	var err error
 	var metrics []telegraf.Metric

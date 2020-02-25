@@ -73,6 +73,14 @@ func (v *Parser) SetDefaultTags(tags map[string]string) {
 	v.DefaultTags = tags
 }
 
+func (p *Parser) IsMultiline() bool {
+	return false
+}
+
+func (p *Parser) IsNewLogLine(line string) (bool, error) {
+	return false, nil
+}
+
 func (v *Parser) Init() error {
 	if v.FieldName == "" {
 		v.FieldName = "value"

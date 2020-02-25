@@ -16,7 +16,7 @@ import (
 // FilePerm defines the permissions that Writer will use for all
 // the files it creates.
 const (
-	FilePerm   = os.FileMode(0644)
+	FilePerm   = os.FileMode(0640)
 	DateFormat = "2006-01-02"
 )
 

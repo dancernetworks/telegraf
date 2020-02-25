@@ -28,7 +28,7 @@
 // Joseph Watson <jtwatson@linux-consulting.us>
 // Kevin Pors <krpors@gmail.com>
 
-//go:build windows
+// +build windows
 
 package win_perf_counters
 
@@ -36,21 +36,38 @@ import (
 	"syscall"
 )
 
-type fileTime struct {
+type SYSTEMTIME struct {
+	wYear         uint16
+	wMonth        uint16
+	wDayOfWeek    uint16
+	wDay          uint16
+	wHour         uint16
+	wMinute       uint16
+	wSecond       uint16
+	wMilliseconds uint16
+}
+
+type FILETIME struct {
 	dwLowDateTime  uint32
 	dwHighDateTime uint32
 }
 
 var (
 	// Library
-	libKernelDll *syscall.DLL
+	libkrnDll *syscall.DLL
 
 	// Functions
-	kernelLocalFileTimeToFileTime *syscall.Proc
+	krn_FileTimeToSystemTime    *syscall.Proc
+	krn_FileTimeToLocalFileTime *syscall.Proc
+	krn_LocalFileTimeToFileTime *syscall.Proc
+	krn_WideCharToMultiByte     *syscall.Proc
 )
 
 func init() {
-	libKernelDll = syscall.MustLoadDLL("Kernel32.dll")
+	libkrnDll = syscall.MustLoadDLL("Kernel32.dll")
 
-	kernelLocalFileTimeToFileTime = libKernelDll.MustFindProc("LocalFileTimeToFileTime")
+	krn_FileTimeToSystemTime = libkrnDll.MustFindProc("FileTimeToSystemTime")
+	krn_FileTimeToLocalFileTime = libkrnDll.MustFindProc("FileTimeToLocalFileTime")
+	krn_LocalFileTimeToFileTime = libkrnDll.MustFindProc("LocalFileTimeToFileTime")
+	krn_WideCharToMultiByte = libkrnDll.MustFindProc("WideCharToMultiByte")
 }

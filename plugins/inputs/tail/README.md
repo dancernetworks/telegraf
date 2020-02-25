@@ -4,7 +4,7 @@ The tail plugin "tails" a logfile and parses each log message.
 
 By default, the tail plugin acts like the following unix tail command:
 
-```shell
+```
 tail -F --lines=0 myfile.log
 ```
 
@@ -14,35 +14,14 @@ inaccessible files.
 - `--lines=0` means that it will start at the end of the file (unless
 the `from_beginning` option is set).
 
-see <http://man7.org/linux/man-pages/man1/tail.1.html> for more details.
+see http://man7.org/linux/man-pages/man1/tail.1.html for more details.
 
-The plugin expects messages in one of the [Telegraf Input Data
-Formats](../../../docs/DATA_FORMATS_INPUT.md).
+The plugin expects messages in one of the
+[Telegraf Input Data Formats](https://github.com/influxdata/telegraf/blob/master/docs/DATA_FORMATS_INPUT.md).
 
-## Service Input <!-- @/docs/includes/service_input.md -->
+### Configuration
 
-This plugin is a service input. Normal plugins gather metrics determined by the
-interval setting. Service plugins start a service to listens and waits for
-metrics or events to occur. Service plugins have two key differences from
-normal plugins:
-
-1. The global or plugin specific `interval` setting may not apply
-2. The CLI options of `--test`, `--test-wait`, and `--once` may not produce
-   output for this plugin
-
-## Global configuration options <!-- @/docs/includes/plugin_config.md -->
-
-In addition to the plugin-specific configuration settings, plugins support
-additional global and plugin configuration settings. These settings are used to
-modify metrics, tags, and field or create aliases and configure ordering, etc.
-See the [CONFIGURATION.md][CONFIGURATION.md] for more details.
-
-[CONFIGURATION.md]: ../../../docs/CONFIGURATION.md#plugins
-
-## Configuration
-
-```toml @sample.conf
-# Parse the new lines appended to a file
+```toml
 [[inputs.tail]]
   ## File names or a pattern to tail.
   ## These accept standard unix glob matching rules, but with the addition of
@@ -88,10 +67,6 @@ See the [CONFIGURATION.md][CONFIGURATION.md] for more details.
   ## Set the tag that will contain the path of the tailed file. If you don't want this tag, set it to an empty string.
   # path_tag = "path"
 
-  ## Filters to apply to files before generating metrics
-  ## "ansi_color" removes ANSI colors
-  # filters = []
-
   ## multiline parser/codec
   ## https://www.elastic.co/guide/en/logstash/2.4/plugins-filters-multiline.html
   #[inputs.tail.multiline]
@@ -102,33 +77,15 @@ See the [CONFIGURATION.md][CONFIGURATION.md] for more details.
     ## multi-line event.
     #match_which_line = "previous"
 
-    ## The invert_match can be true or false (defaults to false).
+    ## The invert_match can be true or false (defaults to false). 
     ## If true, a message not matching the pattern will constitute a match of the multiline filter and the what will be applied. (vice-versa is also true)
     #invert_match = false
-
-    ## The handling method for quoted text (defaults to 'ignore').
-    ## The following methods are available:
-    ##   ignore  -- do not consider quotation (default)
-    ##   single-quotes -- consider text quoted by single quotes (')
-    ##   double-quotes -- consider text quoted by double quotes (")
-    ##   backticks     -- consider text quoted by backticks (`)
-    ## When handling quotes, escaped quotes (e.g. \") are handled correctly.
-    #quotation = "ignore"
-
-    ## The preserve_newline option can be true or false (defaults to false).
-    ## If true, the newline character is preserved for multiline elements,
-    ## this is useful to preserve message-structure e.g. for logging outputs.
-    #preserve_newline = false
 
     #After the specified timeout, this plugin sends the multiline event even if no new pattern is found to start a new event. The default is 5s.
     #timeout = 5s
 ```
 
-## Metrics
+### Metrics
 
 Metrics are produced according to the `data_format` option.  Additionally a
 tag labeled `path` is added to the metric containing the filename being tailed.
-
-## Example Output
-
-There is no predefined metric format, so output depends on plugin input.

@@ -85,6 +85,14 @@ func (p *Parser) Parse(buf []byte) ([]telegraf.Metric, error) {
 	return pp.Parse(buf)
 }
 
+func (p *Parser) IsMultiline() bool {
+	return false
+}
+
+func (p *Parser) IsNewLogLine(line string) (bool, error) {
+	return false, nil
+}
+
 func (p *PointParser) Parse(buf []byte) ([]telegraf.Metric, error) {
 	// parse even if the buffer begins with a newline
 	buf = bytes.TrimPrefix(buf, []byte("\n"))

@@ -111,6 +111,14 @@ func (p *Parser) SetDefaultTags(tags map[string]string) {
 	p.DefaultTags = tags
 }
 
+func (p *Parser) IsMultiline() bool {
+	return false
+}
+
+func (p *Parser) IsNewLogLine(line string) (bool, error) {
+	return false, nil
+}
+
 func (p *Parser) Parse(buf []byte) ([]telegraf.Metric, error) {
 	ts := time.Now().UTC()
 

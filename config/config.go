@@ -551,7 +551,7 @@ func (c *Config) LoadConfigData(data []byte) error {
 	}
 
 	if len(c.UnusedFields) > 0 {
-		return fmt.Errorf("line %d: configuration specified the fields %q, but they weren't used", tbl.Line, keys(c.UnusedFields))
+		log.Printf("line %d: configuration specified the fields %q, but they weren't used", tbl.Line, keys(c.UnusedFields))
 	}
 
 	// Initialize the file-sorting slices
@@ -586,7 +586,7 @@ func (c *Config) LoadConfigData(data []byte) error {
 						pluginName)
 				}
 				if len(c.UnusedFields) > 0 {
-					return fmt.Errorf("plugin %s.%s: line %d: configuration specified the fields %q, but they weren't used",
+					log.Printf("plugin %s.%s: line %d: configuration specified the fields %q, but they weren't used",
 						name, pluginName, subTable.Line, keys(c.UnusedFields))
 				}
 			}
@@ -609,7 +609,7 @@ func (c *Config) LoadConfigData(data []byte) error {
 						pluginName)
 				}
 				if len(c.UnusedFields) > 0 {
-					return fmt.Errorf("plugin %s.%s: line %d: configuration specified the fields %q, but they weren't used",
+					log.Printf("plugin %s.%s: line %d: configuration specified the fields %q, but they weren't used",
 						name, pluginName, subTable.Line, keys(c.UnusedFields))
 				}
 			}
@@ -627,7 +627,7 @@ func (c *Config) LoadConfigData(data []byte) error {
 						pluginName)
 				}
 				if len(c.UnusedFields) > 0 {
-					return fmt.Errorf(
+					log.Printf(
 						"plugin %s.%s: line %d: configuration specified the fields %q, but they weren't used",
 						name,
 						pluginName,
@@ -650,7 +650,7 @@ func (c *Config) LoadConfigData(data []byte) error {
 						pluginName)
 				}
 				if len(c.UnusedFields) > 0 {
-					return fmt.Errorf("plugin %s.%s: line %d: configuration specified the fields %q, but they weren't used",
+					log.Printf("plugin %s.%s: line %d: configuration specified the fields %q, but they weren't used",
 						name, pluginName, subTable.Line, keys(c.UnusedFields))
 				}
 			}
@@ -668,7 +668,7 @@ func (c *Config) LoadConfigData(data []byte) error {
 				}
 				if len(c.UnusedFields) > 0 {
 					msg := "plugin %s.%s: line %d: configuration specified the fields %q, but they weren't used"
-					return fmt.Errorf(msg, name, pluginName, subTable.Line, keys(c.UnusedFields))
+					log.Printf(msg, name, pluginName, subTable.Line, keys(c.UnusedFields))
 				}
 			}
 

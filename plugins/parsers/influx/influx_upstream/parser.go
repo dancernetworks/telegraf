@@ -180,6 +180,14 @@ func (p *Parser) applyDefaultTagsSingle(m telegraf.Metric) {
 	}
 }
 
+func (p *Parser) IsMultiline() bool {
+	return false
+}
+
+func (p *Parser) IsNewLogLine(line string) (bool, error) {
+	return false, nil
+}
+
 func (p *Parser) Init() error {
 	p.defaultTime = time.Now
 	p.precision = lineprotocol.Nanosecond
