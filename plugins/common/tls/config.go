@@ -14,6 +14,8 @@ type ClientConfig struct {
 	TLSCert            string `toml:"tls_cert"`
 	TLSKey             string `toml:"tls_key"`
 	InsecureSkipVerify bool   `toml:"insecure_skip_verify"`
+	TLSMinVersion      string `toml:"tls_min_version"`
+	TLSMaxVersion      string `toml:"tls_max_version"`
 	ServerName         string `toml:"tls_server_name"`
 
 	// Deprecated in 1.7; use TLS variables above
@@ -79,6 +81,24 @@ func (c *ClientConfig) TLSConfig() (*tls.Config, error) {
 
 	if c.ServerName != "" {
 		tlsConfig.ServerName = c.ServerName
+	}
+
+	if c.TLSMaxVersion != "" {
+		version, err := ParseTLSVersion(c.TLSMaxVersion)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"could not parse tls max version %q: %v", c.TLSMaxVersion, err)
+		}
+		tlsConfig.MaxVersion = version
+	}
+
+	if c.TLSMinVersion != "" {
+		version, err := ParseTLSVersion(c.TLSMinVersion)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"could not parse tls min version %q: %v", c.TLSMinVersion, err)
+		}
+		tlsConfig.MinVersion = version
 	}
 
 	return tlsConfig, nil
