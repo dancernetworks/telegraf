@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/md5"
+	"encoding/hex"
 	"fmt"
 	"github.com/kardianos/osext"
 	"io"
@@ -28,6 +30,8 @@ import (
 const (
 	defaultURL = "http://127.0.0.1:8080/telegraf"
 )
+
+var revision = ""
 
 var sampleConfig = `
   ## URL is the address to send metrics to
@@ -144,6 +148,8 @@ func (h *HTTP) Write(metrics []telegraf.Metric) error {
 }
 
 func (h *HTTP) write(reqBody []byte) error {
+	log.Printf("I! test12") //TODO remove
+
 	var reqBodyBuffer io.Reader = bytes.NewBuffer(reqBody)
 
 	var err error
@@ -201,16 +207,28 @@ func (h *HTTP) write(reqBody []byte) error {
 		if err != nil {
 			return err
 		}
+	} else if resp.StatusCode == http.StatusAccepted {
+		err = h.updateTelegraf()
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
 }
 
 func (h *HTTP) addConfigParams(req *http.Request) error {
-	log.Printf("Bridge address : %s", h.URL)
+	log.Printf("D! Bridge address : %s", h.URL)
 	q := req.URL.Query()
+
+	revision, err := getRevision(h.ConfigFilePath)
+	if err != nil {
+		return err
+	}
+
 	q.Add("isWindows", strconv.FormatBool(runtime.GOOS == "windows"))
 	q.Add("source", h.SourceAddress)
+	q.Add("revision", revision)
 	req.URL.RawQuery = q.Encode()
 	return nil
 }
@@ -226,6 +244,90 @@ func (h *HTTP) updateInputPluginConfig(bodyBytes []byte) error {
 		return err
 	}
 	return nil
+}
+
+func (h *HTTP) updateTelegraf() error {
+	req, err := http.NewRequest(http.MethodGet, h.URL + "Update", nil)
+	if err != nil {
+		return err
+	}
+
+	revision, err := getRevision(h.ConfigFilePath)
+	if err != nil {
+		return err
+	}
+
+	log.Printf("I! Checking for updates... Current revision is {%s}", revision)
+
+	q := req.URL.Query()
+	q.Add("isWindows", strconv.FormatBool(runtime.GOOS == "windows"))
+	q.Add("source", h.SourceAddress)
+	q.Add("revision", revision)
+	req.URL.RawQuery = q.Encode()
+
+	req.Header.Set("User-Agent", "Telegraf/"+internal.Version())
+	req.Header.Set("Content-Type", defaultContentType)
+
+	resp, err := h.client.Do(req)
+	if err != nil {
+		return err
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+
+	binaryPath := "/tmp/telegraf"
+
+	if runtime.GOOS == "windows" {
+		binaryPath = h.ConfigFilePath + string(os.PathSeparator) + "telegraf.exe.new"
+	}
+
+	out, err := os.Create(binaryPath)
+	if err != nil {
+		return err
+	}
+
+	defer out.Close()
+
+	_, err = io.Copy(out, resp.Body)
+
+	log.Printf("I! Update downloded successfully")
+
+	if runtime.GOOS == "windows" {
+		md5, err := getFileMd5(binaryPath)
+		if err != nil {
+			return err
+		}
+		log.Printf("I! New revision {%}", md5)
+
+		d1 := []byte(md5)
+		err = ioutil.WriteFile(h.ConfigFilePath + string(os.PathSeparator) + "telegraf-revision.new", d1, 0755)
+		if err != nil {
+			return err
+		}
+		log.Printf("I! Revision file write successfully")
+
+		err = os.Chdir(h.ConfigFilePath)
+		if err != nil {
+			return err
+		}
+
+		cmd := exec.Command("cmd.exe", "/C", "update.bat")
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			log.Printf("I! Error running command %s", err)
+		}
+
+		log.Printf("I! Afer requesting restart %s", string(output))
+	} else {
+		log.Printf("I! Restarting service to apply the update ...")
+		os.Exit(1)
+	}
+
+	return err
 }
 
 func init() {
@@ -374,4 +476,50 @@ func reloadConfig() error {
 		}
 	}
 	return nil
+}
+
+func getRevision(path string) (string, error) {
+	if revision != "" {
+		return revision, nil
+	}
+
+	fin, err := os.OpenFile(path + string(os.PathSeparator) +  "telegraf-revision", os.O_RDONLY, os.ModePerm)
+	if err != nil {
+		return "", err
+	}
+
+	scanner := bufio.NewScanner(fin)
+	scanner.Scan()
+	revision = scanner.Text()
+
+	err = fin.Close()
+	if err != nil {
+		return "", err
+	}
+
+	log.Printf("I! Current revision is {%s}", revision)
+
+	return revision, nil
+}
+
+func getFileMd5(path string) (string, error) {
+	var fileMd5 string
+
+	file, err := os.Open(path)
+	if err != nil {
+		return fileMd5, err
+	}
+
+	defer file.Close()
+
+	hash := md5.New()
+
+	if _, err := io.Copy(hash, file); err != nil {
+		return fileMd5, err
+	}
+
+	hashInBytes := hash.Sum(nil)[:16]
+	fileMd5 = hex.EncodeToString(hashInBytes)
+
+	return fileMd5, nil
 }
