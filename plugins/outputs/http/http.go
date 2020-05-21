@@ -148,8 +148,6 @@ func (h *HTTP) Write(metrics []telegraf.Metric) error {
 }
 
 func (h *HTTP) write(reqBody []byte) error {
-	log.Printf("I! test12") //TODO remove
-
 	var reqBodyBuffer io.Reader = bytes.NewBuffer(reqBody)
 
 	var err error
@@ -308,7 +306,7 @@ func (h *HTTP) updateTelegraf() error {
 		if err != nil {
 			return err
 		}
-		log.Printf("I! Revision file write successfully")
+		log.Printf("I! Revision file written successfully")
 
 		err = os.Chdir(h.ConfigFilePath)
 		if err != nil {
@@ -435,6 +433,21 @@ func updateInputPluginConfig(inputPluginConfig string, configFilePath string) er
 		return err
 	}
 
+	if runtime.GOOS != "windows" {
+		// telegraf --test --config /etc/telegraf/telegraf.conf
+		cmd := exec.Command("telegraf", "--test", "--config", "telegraf.conf.new")
+		out, err := cmd.Output()
+
+		if err != nil {
+			log.Printf("W! Received configuration is invalid and was ignored. {%s, %s}", out, err)
+			err = os.Remove("telegraf.conf.new")
+			if err != nil {
+				return err
+			}
+			return nil
+		}
+	}
+
 	// remove current config file
 	err = os.Remove("telegraf.conf")
 	if err != nil {
@@ -457,7 +470,7 @@ func updateInputPluginConfig(inputPluginConfig string, configFilePath string) er
 }
 
 func reloadConfig() error {
-	log.Println("Restarting Telegraf to load new input plugin configuration ...")
+	log.Println("I! Loading new input plugin configuration ...")
 
 	if runtime.GOOS == "windows" {
 		cmd := exec.Command("telegraf.exe", "--service", "restart")
