@@ -7,6 +7,8 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
+	"github.com/influxdata/telegraf/agent"
+	"github.com/influxdata/telegraf/internal/config"
 	"github.com/kardianos/osext"
 	"io"
 	"io/ioutil"
@@ -32,6 +34,7 @@ const (
 )
 
 var revision = ""
+var testContext context.Context = nil
 
 var sampleConfig = `
   ## URL is the address to send metrics to
@@ -104,6 +107,35 @@ type HTTP struct {
 
 func (h *HTTP) SetSerializer(serializer serializers.Serializer) {
 	h.serializer = serializer
+}
+
+func (h *HTTP) createClient(ctx context.Context) (*http.Client, error) {
+	tlsCfg, err := h.ClientConfig.TLSConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: tlsCfg,
+			Proxy:           http.ProxyFromEnvironment,
+		},
+		Timeout: h.Timeout.Duration,
+	}
+
+	if h.ClientID != "" && h.ClientSecret != "" && h.TokenURL != "" {
+		oauthConfig := clientcredentials.Config{
+			ClientID:     h.ClientID,
+			ClientSecret: h.ClientSecret,
+			TokenURL:     h.TokenURL,
+			Scopes:       h.Scopes,
+		}
+		ctx = context.WithValue(ctx, oauth2.HTTPClient, client)
+		client = oauthConfig.Client(ctx)
+		testContext = ctx
+	}
+
+	return client, nil
 }
 
 func (h *HTTP) Connect() error {
@@ -245,7 +277,7 @@ func (h *HTTP) updateInputPluginConfig(bodyBytes []byte) error {
 }
 
 func (h *HTTP) updateTelegraf() error {
-	req, err := http.NewRequest(http.MethodGet, h.URL + "Update", nil)
+	req, err := http.NewRequest(http.MethodGet, h.URL+"Update", nil)
 	if err != nil {
 		return err
 	}
@@ -302,7 +334,7 @@ func (h *HTTP) updateTelegraf() error {
 		log.Printf("I! New revision {%}", md5)
 
 		d1 := []byte(md5)
-		err = ioutil.WriteFile(h.ConfigFilePath + string(os.PathSeparator) + "telegraf-revision.new", d1, 0755)
+		err = ioutil.WriteFile(h.ConfigFilePath+string(os.PathSeparator)+"telegraf-revision.new", d1, 0755)
 		if err != nil {
 			return err
 		}
@@ -433,22 +465,40 @@ func updateInputPluginConfig(inputPluginConfig string, configFilePath string) er
 		return err
 	}
 
-	if runtime.GOOS != "windows" {
-		// telegraf --test --config /etc/telegraf/telegraf.conf
-		cmd := exec.Command("telegraf", "--test", "--config", "telegraf.conf.new")
-		out, err := cmd.Output()
+	log.Printf("I! Testing received configuration ...")
 
-		if err != nil {
-			log.Printf("W! Received configuration is invalid and was ignored. {%s, %s}", out, err)
+	defer func() {
+		if err := recover(); err != nil {
+			log.Printf("W! Received configuration is invalid and was ignored. {%s}", err)
 			err = os.Remove("telegraf.conf.new")
-			if err != nil {
-				return err
-			}
-			return nil
 		}
+	}()
+
+	testContext, _ := context.WithCancel(context.Background())
+	c := config.NewConfig()
+
+	err = c.LoadConfig("telegraf.conf.new")
+	if err != nil {
+		return err
 	}
 
-	// remove current config file
+	ag, err := agent.NewAgent(c)
+	if err != nil {
+		return err
+	}
+
+	err = ag.Test(testContext, 0)
+
+	if err != nil {
+		log.Printf("W! Received configuration is invalid and was ignored. {%s}", err)
+		err = os.Remove("telegraf.conf.new")
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+
+	// We are here only if received config is valid
 	err = os.Remove("telegraf.conf")
 	if err != nil {
 		return err
@@ -470,7 +520,7 @@ func updateInputPluginConfig(inputPluginConfig string, configFilePath string) er
 }
 
 func reloadConfig() error {
-	log.Println("I! Loading new input plugin configuration ...")
+	log.Println("I! Loading new configuration ...")
 
 	if runtime.GOOS == "windows" {
 		cmd := exec.Command("telegraf.exe", "--service", "restart")
@@ -496,7 +546,7 @@ func getRevision(path string) (string, error) {
 		return revision, nil
 	}
 
-	fin, err := os.OpenFile(path + string(os.PathSeparator) +  "telegraf-revision", os.O_RDONLY, os.ModePerm)
+	fin, err := os.OpenFile(path+string(os.PathSeparator)+"telegraf-revision", os.O_RDONLY, os.ModePerm)
 	if err != nil {
 		return "", err
 	}
