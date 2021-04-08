@@ -56,6 +56,10 @@ type Parser interface {
 	// Doesn't need to be implemented by non-linebased parsers (e.g. json, xml)
 	ParseLine(line string) (telegraf.Metric, error)
 
+    IsMultiline() bool
+
+	IsNewLogLine(line string) (bool, error)
+
 	// SetDefaultTags tells the parser to add all of the given tags
 	// to each parsed metric.
 	// NOTE: do _not_ modify the map after you've passed it here!!
