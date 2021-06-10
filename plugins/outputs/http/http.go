@@ -319,6 +319,25 @@ func (h *HTTP) updateTelegraf() error {
 
 	if runtime.GOOS == "windows" {
 		binaryPath = h.ConfigFilePath + string(os.PathSeparator) + "telegraf.exe.new"
+	} else {
+		// If Linux
+		// Older versions of the installer does not have a installer-version file. So checking if the file exist is enough.
+		if _, err := os.Stat("/etc/telegraf/installer-version"); !errors.Is(err, os.ErrNotExist) {
+			binaryPath = "/tmp/telegraf-updates/telegraf"
+
+			// Create a directory under /tmp owned by telegraf user
+			err = os.MkdirAll("/tmp/telegraf-updates", 0700)
+			if err != nil {
+				return err
+			}
+		} else {
+			log.Printf("W! Agent-D installer is outdated. Please reinstall Agent-D.")
+		}
+
+		err = removeFileIfExists(binaryPath)
+		if err != nil {
+			return err
+		}
 	}
 
 	out, err := os.Create(binaryPath)
@@ -330,7 +349,7 @@ func (h *HTTP) updateTelegraf() error {
 
 	_, err = io.Copy(out, resp.Body)
 
-	log.Printf("I! Update downloded successfully")
+	log.Printf("I! Update downloded successfully to {%s}", binaryPath)
 
 	if runtime.GOOS == "windows" {
 		md5, err := getFileMd5(binaryPath)
@@ -747,4 +766,14 @@ func isTinyCore(path string) bool {
 		}
 	}
 	return true
+}
+
+func removeFileIfExists(path string) error {
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		err := os.Remove(path)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
