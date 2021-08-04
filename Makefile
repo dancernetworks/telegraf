@@ -90,7 +90,7 @@ deps:
 
 .PHONY: telegraf
 telegraf:
-	go build -gcflags "all=-N -l" -ldflags "$(LDFLAGS)" ./cmd/telegraf
+	go build -gcflags "all=-N -l" -buildmode=pie -ldflags "$(LDFLAGS)" ./cmd/telegraf
 
 # Used by dockerfile builds
 .PHONY: go-install
