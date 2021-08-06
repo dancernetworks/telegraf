@@ -9,7 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/influxdata/telegraf/agent"
-	"github.com/influxdata/telegraf/internal/config"
+	"github.com/influxdata/telegraf/config"
+	"github.com/influxdata/telegraf/models"
 	"github.com/kardianos/osext"
 	"io"
 	"io/ioutil"
@@ -17,6 +18,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -108,34 +110,6 @@ type HTTP struct {
 
 func (h *HTTP) SetSerializer(serializer serializers.Serializer) {
 	h.serializer = serializer
-}
-
-func (h *HTTP) createClient(ctx context.Context) (*http.Client, error) {
-	tlsCfg, err := h.ClientConfig.TLSConfig()
-	if err != nil {
-		return nil, err
-	}
-
-	client := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: tlsCfg,
-			Proxy:           http.ProxyFromEnvironment,
-		},
-		Timeout: h.Timeout.Duration,
-	}
-
-	if h.ClientID != "" && h.ClientSecret != "" && h.TokenURL != "" {
-		oauthConfig := clientcredentials.Config{
-			ClientID:     h.ClientID,
-			ClientSecret: h.ClientSecret,
-			TokenURL:     h.TokenURL,
-			Scopes:       h.Scopes,
-		}
-		ctx = context.WithValue(ctx, oauth2.HTTPClient, client)
-		client = oauthConfig.Client(ctx)
-	}
-
-	return client, nil
 }
 
 func (h *HTTP) Connect() error {
@@ -318,7 +292,7 @@ func (h *HTTP) updateTelegraf() error {
 	binaryPath := "/tmp/telegraf"
 
 	if runtime.GOOS == "windows" {
-		binaryPath = h.ConfigFilePath + string(os.PathSeparator) + "telegraf.exe.new"
+		binaryPath = filepath.FromSlash(h.ConfigFilePath + "/telegraf.exe.new")
 	} else {
 		// If Linux
 		// Older versions of the installer does not have a installer-version file. So checking if the file exist is enough.
@@ -359,7 +333,7 @@ func (h *HTTP) updateTelegraf() error {
 		log.Printf("I! New revision {%}", md5)
 
 		d1 := []byte(md5)
-		err = ioutil.WriteFile(h.ConfigFilePath+string(os.PathSeparator)+"telegraf-revision.new", d1, 0755)
+		err = ioutil.WriteFile(filepath.FromSlash(h.ConfigFilePath +  "/telegraf-revision.new"), d1, 0755)
 		if err != nil {
 			return err
 		}
@@ -554,11 +528,11 @@ func testConfig(inputPluginConfig string) (int, error) {
 	if err != nil {
 		return 3, err
 	}
-	agent.NErrors.Set(0)
+	models.GlobalGatherErrors.Set(0)
 
 	err = ag.Test(testContext, 0)
 	if err != nil {
-		agent.NErrors.Set(0)
+		models.GlobalGatherErrors.Set(0)
 		return 4, err
 	}
 
@@ -678,11 +652,11 @@ func testWinPrefConfig(inputPluginConfig string) (int, error) {
 		if err != nil {
 			return 3, err
 		}
-		agent.NErrors.Set(0)
+		models.GlobalGatherErrors.Set(0)
 
 		err = ag.Test(testContext, 0)
 		if err != nil {
-			agent.NErrors.Set(0)
+			models.GlobalGatherErrors.Set(0)
 			return 4, err
 		}
 	}
@@ -717,7 +691,7 @@ func getRevision(path string) (string, error) {
 		return revision, nil
 	}
 
-	fin, err := os.OpenFile(path+string(os.PathSeparator)+"telegraf-revision", os.O_RDONLY, os.ModePerm)
+	fin, err := os.OpenFile(filepath.FromSlash(path + "/telegraf-revision"), os.O_RDONLY, os.ModePerm)
 	if err != nil {
 		return "", err
 	}
@@ -760,7 +734,7 @@ func getFileMd5(path string) (string, error) {
 
 
 func isTinyCore(path string) bool {
-	if _, err := os.Stat(path+string(os.PathSeparator)+"os-tinycore"); err != nil {
+	if _, err := os.Stat(filepath.FromSlash(path + "/os-tinycore")); err != nil {
 		if os.IsNotExist(err) {
 			return false
 		}

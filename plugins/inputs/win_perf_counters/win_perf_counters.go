@@ -391,7 +391,7 @@ func (m *Win_PerfCounters) Gather(acc telegraf.Accumulator) error {
 				if !isKnownCounterDataError(err) {
 					return fmt.Errorf("error while getting value for counter %s: %v", metric.counterPath, err)
 				}
-				m.Log.Warnf("error while getting value for counter %q, will skip metric: %v", metric.counterPath, err)
+				m.Log.Debugf("error while getting value for counter %q, will skip metric: %v", metric.counterPath, err)
 				continue
 			}
 			addCounterMeasurement(metric, metric.instance, value, collectFields)
@@ -402,7 +402,7 @@ func (m *Win_PerfCounters) Gather(acc telegraf.Accumulator) error {
 				if !isKnownCounterDataError(err) {
 					return fmt.Errorf("error while getting value for counter %s: %v", metric.counterPath, err)
 				}
-				m.Log.Warnf("error while getting value for counter %q, will skip metric: %v", metric.counterPath, err)
+				m.Log.Debugf("error while getting value for counter %q, will skip metric: %v", metric.counterPath, err)
 				continue
 			}
 			for _, cValue := range counterValues {

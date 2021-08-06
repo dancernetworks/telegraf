@@ -3,6 +3,7 @@ module github.com/influxdata/telegraf
 go 1.16
 
 require (
+	4d63.com/tz v1.2.0
 	cloud.google.com/go v0.56.0
 	cloud.google.com/go/bigquery v1.4.0
 	cloud.google.com/go/pubsub v1.2.0
@@ -33,6 +34,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.1.0
 	github.com/aws/smithy-go v1.3.1
 	github.com/benbjohnson/clock v1.0.3
+	github.com/bhendo/go-powershell v0.0.0-20190719160123-219e7fb4e41e
 	github.com/bitly/go-hostpool v0.1.0 // indirect
 	github.com/bmatcuk/doublestar/v3 v3.0.0
 	github.com/bmizerany/assert v0.0.0-20160611221934-b7ed37b82869
@@ -83,6 +85,7 @@ require (
 	github.com/jackc/pgx/v4 v4.6.0
 	github.com/james4k/rcon v0.0.0-20120923215419-8fbb8268b60a
 	github.com/jmespath/go-jmespath v0.4.0
+	github.com/kardianos/osext v0.0.0-20190222173326-2bc1f35cddc0
 	github.com/kardianos/service v1.0.0
 	github.com/karrick/godirwalk v1.16.1
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51

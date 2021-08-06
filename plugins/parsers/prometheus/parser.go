@@ -25,6 +25,14 @@ type Parser struct {
 	Header      http.Header
 }
 
+func (p *Parser) IsMultiline() bool {
+	panic("implement me")
+}
+
+func (p *Parser) IsNewLogLine(line string) (bool, error) {
+	panic("implement me")
+}
+
 func (p *Parser) Parse(buf []byte) ([]telegraf.Metric, error) {
 	var parser expfmt.TextParser
 	var metrics []telegraf.Metric

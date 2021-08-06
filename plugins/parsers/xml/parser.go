@@ -19,6 +19,14 @@ type Parser struct {
 	Log         telegraf.Logger
 }
 
+func (p *Parser) IsMultiline() bool {
+	panic("implement me")
+}
+
+func (p *Parser) IsNewLogLine(line string) (bool, error) {
+	panic("implement me")
+}
+
 type Config struct {
 	MetricName   string
 	MetricQuery  string            `toml:"metric_name"`
