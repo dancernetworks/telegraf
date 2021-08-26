@@ -133,7 +133,6 @@ func (t *Tail) Start(acc telegraf.Accumulator) error {
 		if err != nil {
 			t.Log.Warn("Error occurred", err)
 		}
-		t.Log.Debug("PS Encoding: ", encoding)
 
 		if strings.Contains(encoding, "JIS") {
 			t.isJIS = true

@@ -203,7 +203,6 @@ func init() {
 	if err != nil {
 		log.Printf("W! Error occurred %s", err)
 	}
-	log.Printf("D! PS Encoding: %s", encoding)
 
 	isJIS := false
 	if strings.Contains(encoding, "JIS") {
