@@ -5,10 +5,13 @@ package win_services
 import (
 	"fmt"
 	"os"
+	"syscall"
+	"unsafe"
 
 	"github.com/influxdata/telegraf"
 	"github.com/influxdata/telegraf/filter"
 	"github.com/influxdata/telegraf/plugins/inputs"
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
 )
@@ -137,7 +140,7 @@ func (m *WinServices) Gather(acc telegraf.Accumulator) error {
 	}
 
 	for _, srvName := range serviceNames {
-		service, err := collectServiceInfo(scmgr, srvName)
+		service, err := m.collectServiceInfo(scmgr, srvName)
 		if err != nil {
 			if IsPermission(err) {
 				m.Log.Debug(err.Error())
@@ -185,7 +188,7 @@ func (m *WinServices) listServices(scmgr WinServiceManager) ([]string, error) {
 }
 
 // collectServiceInfo gathers info about a service.
-func collectServiceInfo(scmgr WinServiceManager, serviceName string) (*ServiceInfo, error) {
+func (m *WinServices) collectServiceInfo(scmgr WinServiceManager, serviceName string) (*ServiceInfo, error) {
 	srv, err := scmgr.OpenService(serviceName)
 	if err != nil {
 		return nil, &ServiceErr{
@@ -205,22 +208,40 @@ func collectServiceInfo(scmgr WinServiceManager, serviceName string) (*ServiceIn
 		}
 	}
 
-	srvCfg, err := srv.Config()
+	displayName, startType, err := DisplayNameStartType(srv.(*mgr.Service))
 	if err != nil {
-		return nil, &ServiceErr{
-			Message: "could not get config of service",
-			Service: serviceName,
-			Err:     err,
-		}
+		m.Log.Warnf("Could not get config of service %s: %s", serviceName, err)
+		displayName = fmt.Sprintf("Could not get config of service %s", serviceName)
 	}
 
 	serviceInfo := &ServiceInfo{
 		ServiceName: serviceName,
-		DisplayName: srvCfg.DisplayName,
-		StartUpMode: int(srvCfg.StartType),
+		DisplayName: displayName,
+		StartUpMode: int(startType),
 		State:       int(srvStatus.State),
 	}
 	return serviceInfo, nil
+}
+
+func DisplayNameStartType(s *mgr.Service) (string, uint32, error) {
+	var p *windows.QUERY_SERVICE_CONFIG
+	n := uint32(1024)
+	for {
+		b := make([]byte, n)
+		p = (*windows.QUERY_SERVICE_CONFIG)(unsafe.Pointer(&b[0]))
+		err := windows.QueryServiceConfig(s.Handle, p, n, &n)
+		if err == nil {
+			break
+		}
+		if err.(syscall.Errno) != syscall.ERROR_INSUFFICIENT_BUFFER {
+			return "", 0, err
+		}
+		if n <= uint32(len(b)) {
+			return "", 0, err
+		}
+	}
+
+	return windows.UTF16PtrToString(p.DisplayName), p.StartType, nil
 }
 
 func init() {
