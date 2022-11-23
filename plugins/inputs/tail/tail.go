@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/ioutil"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -37,6 +38,7 @@ type Tail struct {
 	FromBeginning bool
 	Pipe          bool
 	WatchMethod   string
+	MonitorId     int64
 
 	Log telegraf.Logger
 
@@ -267,6 +269,7 @@ func (t *Tail) receiver(parser parsers.Parser, tailer *tail.Tail) {
 
 		for _, metric := range metrics {
 			metric.AddTag("path", tailer.Filename)
+			metric.AddTag("monitorId", strconv.FormatInt(t.MonitorId, 10))
 			t.acc.AddMetric(metric)
 		}
 	}
