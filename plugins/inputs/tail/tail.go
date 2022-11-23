@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/ioutil"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -45,7 +46,8 @@ type Tail struct {
 	parserFunc parsers.ParserFunc
 	wg         sync.WaitGroup
 	acc        telegraf.Accumulator
-	isJIS	   bool
+	isJIS      bool
+	monitorId  int64
 
 	sync.Mutex
 }
@@ -267,6 +269,7 @@ func (t *Tail) receiver(parser parsers.Parser, tailer *tail.Tail) {
 
 		for _, metric := range metrics {
 			metric.AddTag("path", tailer.Filename)
+			metric.AddTag("monitorId", strconv.FormatInt(t.monitorId, 10))
 			t.acc.AddMetric(metric)
 		}
 	}
