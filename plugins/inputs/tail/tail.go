@@ -38,6 +38,7 @@ type Tail struct {
 	FromBeginning bool
 	Pipe          bool
 	WatchMethod   string
+	MonitorId     int64
 
 	Log telegraf.Logger
 
@@ -47,7 +48,6 @@ type Tail struct {
 	wg         sync.WaitGroup
 	acc        telegraf.Accumulator
 	isJIS      bool
-	monitorId  int64
 
 	sync.Mutex
 }
