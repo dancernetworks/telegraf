@@ -269,7 +269,7 @@ func (t *Tail) receiver(parser parsers.Parser, tailer *tail.Tail) {
 
 		for _, metric := range metrics {
 			metric.AddTag("path", tailer.Filename)
-			metric.AddTag("monitorId", strconv.FormatInt(t.monitorId, 10))
+			metric.AddTag("monitorId", strconv.FormatInt(t.MonitorId, 10))
 			t.acc.AddMetric(metric)
 		}
 	}
