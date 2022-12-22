@@ -39,9 +39,6 @@ type DNSQuery struct {
 
 	// Dns query timeout in seconds. 0 means no timeout
 	Timeout int
-
-	// Monitor ID sent from ThirdEye
-	MonitorId int64
 }
 
 var sampleConfig = `
@@ -85,7 +82,6 @@ func (d *DNSQuery) Gather(acc telegraf.Accumulator) error {
 					"server":      server,
 					"domain":      domain,
 					"record_type": d.RecordType,
-					"monitorId":   strconv.FormatInt(d.MonitorId, 10),
 				}
 
 				dnsQueryTime, rcode, err := d.getDNSQueryTime(domain, server)
