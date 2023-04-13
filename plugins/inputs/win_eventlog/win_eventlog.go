@@ -139,6 +139,13 @@ Get-WinEvent -LogName '%s' -FilterXPath $XPath | Select-Object -Property Message
 			if w.isJIS {
 				message, _ = FromShiftJIS(message)
 			}
+
+			message = strings.ReplaceAll(message, "\n", "|")
+
+			for _, char := range message {
+				w.Log.Debug("%c: %U\n", char, char)
+			}
+
 			w.Log.Debug("Message :", message)
 
 			// Pass collected metrics
