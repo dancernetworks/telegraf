@@ -143,7 +143,7 @@ Get-WinEvent -LogName '%s' -FilterXPath $XPath | Select-Object -Property Message
 			message = strings.ReplaceAll(message, "\n", "|")
 
 			for _, char := range message {
-				w.Log.Debug(fmt.Printf("%c: %U\n", char, char))
+				w.Log.Debug(fmt.Sprintf("%c: %U\n", char, char))
 			}
 
 			w.Log.Debug("Message :", message)
