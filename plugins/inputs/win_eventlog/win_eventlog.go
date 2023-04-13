@@ -119,7 +119,7 @@ loop:
 				eventDesc = append(eventDesc, kv.Value)
 			}
 
-			re := regexp.MustCompile(`\r?\n`)
+			re := regexp.MustCompile(`[\r\n]+`)
 			description := strings.Join(eventDesc, "|")
 			description = re.ReplaceAllString(description, "|")
 
