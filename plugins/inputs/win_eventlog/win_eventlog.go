@@ -119,7 +119,7 @@ loop:
 				eventDesc = append(eventDesc, kv.Value)
 			}
 
-			re := regexp.MustCompile(`\r?\n`)
+			re := regexp.MustCompile(`[\r\n]+`)
 			description := strings.Join(eventDesc, "|")
 			description = re.ReplaceAllString(description, "|")
 
@@ -139,9 +139,6 @@ Get-WinEvent -LogName '%s' -FilterXPath $XPath | Select-Object -Property Message
 			if w.isJIS {
 				message, _ = FromShiftJIS(message)
 			}
-
-			message = strings.ReplaceAll(message, "\n", "|")
-			message = strings.ReplaceAll(message, "\r", "|")
 
 			for _, char := range message {
 				w.Log.Debug(fmt.Sprintf("%c: %U\n", char, char))
