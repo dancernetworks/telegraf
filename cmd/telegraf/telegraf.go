@@ -108,6 +108,8 @@ func reloadLoop(
 	inputFilters []string,
 	outputFilters []string,
 ) {
+	log.Printf("I! Start reloadLoop()")
+
 	reload := make(chan bool, 1)
 	reload <- true
 	for <-reload {
@@ -145,6 +147,7 @@ func reloadLoop(
 			log.Fatalf("E! [telegraf] Error running agent: %v", err)
 		}
 	}
+	log.Printf("I! Start done reloadLoop()")
 }
 
 func watchLocalConfig(signals chan os.Signal, fConfig string) {

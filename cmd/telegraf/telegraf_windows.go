@@ -56,6 +56,8 @@ func (p *program) Start(s service.Service) error {
 func (p *program) run() {
 	log.Printf("I! Start run()")
 
+	time.Sleep(2 * time.Minute)
+
 	stop = make(chan struct{})
 	reloadLoop(
 		p.inputFilters,
@@ -63,6 +65,7 @@ func (p *program) run() {
 	)
 	log.Printf("I! Run finished.")
 }
+
 func (p *program) Stop(s service.Service) error {
 	close(stop)
 	return nil
