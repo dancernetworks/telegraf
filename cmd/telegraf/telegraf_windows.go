@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"runtime"
+	"time"
 
 	"github.com/influxdata/telegraf/logger"
 	"github.com/kardianos/service"
