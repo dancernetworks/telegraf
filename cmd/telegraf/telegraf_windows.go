@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"runtime"
+	"time"
 )
 
 func run(inputFilters, outputFilters []string) {
