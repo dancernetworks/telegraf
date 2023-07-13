@@ -3,13 +3,11 @@
 package main
 
 import (
+	"github.com/influxdata/telegraf/logger"
+	"github.com/kardianos/service"
 	"log"
 	"os"
 	"runtime"
-	"time"
-
-	"github.com/influxdata/telegraf/logger"
-	"github.com/kardianos/service"
 )
 
 func run(inputFilters, outputFilters []string) {
@@ -38,6 +36,8 @@ type program struct {
 func (p *program) Start(s service.Service) error {
 	log.Printf("I! Service start called")
 
+	time.Sleep(2 * time.Minute)
+
 	// Create a channel to signal the completion of the run() method
 	done := make(chan bool)
 
@@ -56,8 +56,6 @@ func (p *program) Start(s service.Service) error {
 
 func (p *program) run() {
 	log.Printf("I! Start run()")
-
-	time.Sleep(2 * time.Minute)
 
 	stop = make(chan struct{})
 	reloadLoop(
