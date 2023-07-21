@@ -35,16 +35,7 @@ type program struct {
 }
 
 func (p *program) Start(s service.Service) error {
-	// Create a channel to signal the completion of the run() method
-	done := make(chan bool)
-
-	// Start the run() method in a goroutine
-	go func() {
-		defer close(done) // Signal that the run() method has completed when the goroutine exits
-		p.run()
-	}()
-
-	// Return immediately without waiting for the run() method to complete
+	go p.run()
 	return nil
 }
 func (p *program) run() {
