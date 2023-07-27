@@ -5,12 +5,11 @@
 package win_eventlog
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/xml"
 	"fmt"
 	"path/filepath"
-	"reflect"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -157,125 +156,49 @@ loop:
 		}
 
 		for _, event := range events {
-			// Prepare fields names usage counter
-			var fieldsUsage = map[string]int{}
+			eventTime := event.TimeCreated.SystemTime
 
-			tags := map[string]string{}
-			fields := map[string]interface{}{}
-			evt := reflect.ValueOf(&event).Elem()
-			timeStamp := time.Now()
-			// Walk through all fields of Event struct to process System tags or fields
-			for i := 0; i < evt.NumField(); i++ {
-				fieldName := evt.Type().Field(i).Name
-				fieldType := evt.Field(i).Type().String()
-				fieldValue := evt.Field(i).Interface()
-				computedValues := map[string]interface{}{}
-				switch fieldName {
-				case "Source":
-					fieldValue = event.Source.Name
-					fieldType = reflect.TypeOf(fieldValue).String()
-				case "Execution":
-					fieldValue := event.Execution.ProcessID
-					fieldType = reflect.TypeOf(fieldValue).String()
-					fieldName = "ProcessID"
-					// Look up Process Name from pid
-					if should, _ := w.shouldProcessField("ProcessName"); should {
-						_, _, processName, err := GetFromSnapProcess(fieldValue)
-						if err == nil {
-							computedValues["ProcessName"] = processName
-						}
-					}
-				case "TimeCreated":
-					fieldValue = event.TimeCreated.SystemTime
-					fieldType = reflect.TypeOf(fieldValue).String()
-					if w.TimeStampFromEvent {
-						timeStamp, err = time.Parse(time.RFC3339Nano, fmt.Sprintf("%v", fieldValue))
-						if err != nil {
-							w.Log.Warnf("Error parsing timestamp %q: %v", fieldValue, err)
-						}
-					}
-				case "Correlation":
-					if should, _ := w.shouldProcessField("ActivityID"); should {
-						activityID := event.Correlation.ActivityID
-						if len(activityID) > 0 {
-							computedValues["ActivityID"] = activityID
-						}
-					}
-					if should, _ := w.shouldProcessField("RelatedActivityID"); should {
-						relatedActivityID := event.Correlation.RelatedActivityID
-						if len(relatedActivityID) > 0 {
-							computedValues["RelatedActivityID"] = relatedActivityID
-						}
-					}
-				case "Security":
-					computedValues["UserID"] = event.Security.UserID
-					// Look up UserName and Domain from SID
-					if should, _ := w.shouldProcessField("UserName"); should {
-						sid := event.Security.UserID
-						usid, err := syscall.StringToSid(sid)
-						if err == nil {
-							username, domain, _, err := usid.LookupAccount("")
-							if err == nil {
-								computedValues["UserName"] = fmt.Sprint(domain, "\\", username)
-							}
-						}
-					}
-				default:
-				}
-				if should, where := w.shouldProcessField(fieldName); should {
-					if where == "tags" {
-						strValue := fmt.Sprintf("%v", fieldValue)
-						if !w.shouldExcludeEmptyField(fieldName, "string", strValue) {
-							tags[fieldName] = strValue
-							fieldsUsage[fieldName]++
-						}
-					} else if where == "fields" {
-						if !w.shouldExcludeEmptyField(fieldName, fieldType, fieldValue) {
-							fields[fieldName] = fieldValue
-							fieldsUsage[fieldName]++
-						}
-					}
-				}
-
-				// Insert computed fields
-				for computedKey, computedValue := range computedValues {
-					if should, where := w.shouldProcessField(computedKey); should {
-						if where == "tags" {
-							tags[computedKey] = fmt.Sprintf("%v", computedValue)
-							fieldsUsage[computedKey]++
-						} else if where == "fields" {
-							fields[computedKey] = computedValue
-							fieldsUsage[computedKey]++
-						}
-					}
-				}
+			timeStamp, err := time.Parse(time.RFC3339Nano, fmt.Sprintf("%v", eventTime))
+			if err != nil {
+				w.Log.Warnf("Error parsing timestamp %q: %v", eventTime, err)
+				timeStamp = time.Now()
 			}
 
-			// Unroll additional XML
-			var xmlFields []EventField
-			if w.ProcessUserData {
-				fieldsUserData, xmlFieldsUsage := UnrollXMLFields(event.UserData.InnerXML, fieldsUsage, w.Separator)
-				xmlFields = append(xmlFields, fieldsUserData...)
-				fieldsUsage = xmlFieldsUsage
-			}
-			if w.ProcessEventData {
-				fieldsEventData, xmlFieldsUsage := UnrollXMLFields(event.EventData.InnerXML, fieldsUsage, w.Separator)
-				xmlFields = append(xmlFields, fieldsEventData...)
-				fieldsUsage = xmlFieldsUsage
-			}
-			uniqueXMLFields := UniqueFieldNames(xmlFields, fieldsUsage, w.Separator)
-			for _, xmlField := range uniqueXMLFields {
-				if !w.shouldExclude(xmlField.Name) {
-					fields[xmlField.Name] = xmlField.Value
-				}
-			}
+			description := createDescriptionFromEvent(event)
 
-			// Pass collected metrics
-			acc.AddFields("win_eventlog", fields, tags, timeStamp)
+			acc.AddFields("win_event",
+				map[string]interface{}{
+					"record_id":     event.EventRecordID,
+					"event_id":      event.EventID,
+					"level":         event.Level,
+					"message":       event.Message,
+					"description":   description,
+					"source":        event.Source.Name,
+					"created":       eventTime,
+				}, map[string]string{
+					"eventlog_name": event.Channel,
+				}, timeStamp)
 		}
 	}
 
 	return nil
+}
+
+func createDescriptionFromEvent(event Event) (string) {
+	var fieldsUsage = map[string]int{}
+	fieldsEventData, _ := UnrollXMLFields(event.EventData.InnerXML, fieldsUsage, "_")
+
+	var eventDataValues []string
+	for _, xmlField := range fieldsEventData {
+		eventDataValues = append(eventDataValues, xmlField.Value)
+	}
+
+	description := strings.Join(eventDataValues, "|")
+
+	crlfRe := regexp.MustCompile(`[\r\n]+`)
+	description = crlfRe.ReplaceAllString(description, "|")
+
+	return description
 }
 
 func (w *WinEventLog) shouldExclude(field string) (should bool) {
@@ -431,11 +354,9 @@ func (w *WinEventLog) renderEvent(eventHandle EvtHandle) (Event, error) {
 	}
 	message, err := formatEventString(EvtFormatMessageEvent, eventHandle, publisherHandle)
 	if err == nil {
-		if w.OnlyFirstLineOfMessage {
-			scanner := bufio.NewScanner(strings.NewReader(message))
-			scanner.Scan()
-			message = scanner.Text()
-		}
+		crlfRe := regexp.MustCompile(`[\r\n]+`)
+		message = strings.TrimSpace(message)
+		message = crlfRe.ReplaceAllString(message, "|")
 		event.Message = message
 	}
 	level, err := formatEventString(EvtFormatMessageLevel, eventHandle, publisherHandle)
