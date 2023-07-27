@@ -216,39 +216,3 @@ win_eventlog,Channel=Microsoft-Windows-Dhcp-Client/Admin,Computer=PC,EventID=100
 win_eventlog,Channel=System,Computer=PC,EventID=10016,Keywords=Classic,Level=3,LevelText=Warning,Opcode=0,OpcodeText=Info,Source=Microsoft-Windows-DistributedCOM,Task=0,host=PC Data_param3="Активация",Data_param6="PC",Data_param8="S-1-5-21-2007059868-50816014-3139024325-1001",Version=0i,UserName="PC\\User",Data_param1="по умолчанию для компьютера",Data_param2="Локально",Data_param7="User",Data_param9="LocalHost (с использованием LRPC)",Data_param10="Microsoft.Windows.ShellExperienceHost_10.0.19041.423_neutral_neutral_cw5n1h2txyewy",ActivityID="{839cac9e-73a1-4559-a847-62f3a5e73e44}",ProcessName="svchost.exe",Message="The по умолчанию для компьютера permission settings do not grant Локально Активация permission for the COM Server application with CLSID ",Data_param5="{316CDED5-E4AE-4B15-9113-7055D84DCC97}",Data_param11="S-1-15-2-.-.-.-.-.-.-2861478708",TimeCreated="2020-08-21T08:43:45.5233759Z",EventRecordID=1914689i,UserID="S-1-5-21-.-.-.-1001",Data_param4="{C2F03A33-21F5-47FA-B4BB-156362A2F239}" 1597999430000000000
 
 ```
-Collects Windows events.
-
-Supports Windows Vista and higher.
-
-### Configuration:
-
-```toml
-  eventlog_name = "Application"
-  xpath_query = "Event/System[EventID=999]"
-```
-
-### Measurements & Fields:
-
-- win_eventlog
-    - record_id : integer
-    - event_id : integer
-    - description : string
-    - created : string
-    - source : string
-
-The `level` tag can have the following values:
-- 1 - critical
-- 2 - error
-- 3 - warning
-- 4 - information
-
-### Tags:
-
-- All measurements have the following tags:
-    - level
-    - eventlog_name
-    
-### Example Output:
-```
-win_event,eventlog_name=Application,host=MYHOSTNAME,level=2 description="TEST777",source="Service777",created="2020-02-11 13:07:45.748337 +0000 UTC",record_id=58267i,event_id=999i 1581426470000000000
-```
