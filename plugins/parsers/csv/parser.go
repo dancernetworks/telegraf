@@ -469,14 +469,6 @@ outer:
 	return m, nil
 }
 
-func (p *Parser) IsMultiline() bool {
-	return false
-}
-
-func (p *Parser) IsNewLogLine(line string) (bool, error) {
-	return false, nil
-}
-
 // ParseTimestamp return a timestamp, if there is no timestamp on the csv it
 // will be the current timestamp, else it will try to parse the time according
 // to the format.

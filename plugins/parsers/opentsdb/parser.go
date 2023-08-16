@@ -109,14 +109,6 @@ func (p *Parser) ParseLine(line string) (telegraf.Metric, error) {
 	return metric.New(measurement, tags, fieldValues, timestamp), nil
 }
 
-func (p *Parser) IsMultiline() bool {
-	return false
-}
-
-func (p *Parser) IsNewLogLine(line string) (bool, error) {
-	return false, nil
-}
-
 func (p *Parser) SetDefaultTags(tags map[string]string) {
 	p.DefaultTags = tags
 }

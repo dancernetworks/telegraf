@@ -603,14 +603,6 @@ func (p *Parser) constructFieldName(root, node dataNode, name string, expand boo
 	return name
 }
 
-func (p *Parser) IsMultiline() bool {
-	return false
-}
-
-func (p *Parser) IsNewLogLine(line string) (bool, error) {
-	return false, nil
-}
-
 func (p *Parser) debugEmptyQuery(operation string, root dataNode, initialquery string) {
 	if p.Log == nil {
 		return

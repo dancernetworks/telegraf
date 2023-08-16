@@ -59,14 +59,6 @@ func (p Parser) ParseLine(line string) (telegraf.Metric, error) {
 	return metrics[0], nil
 }
 
-func (p *Parser) IsMultiline() bool {
-	return false
-}
-
-func (p *Parser) IsNewLogLine(line string) (bool, error) {
-	return false, nil
-}
-
 // SetDefaultTags sets the default tags for every metric
 func (p *Parser) SetDefaultTags(tags map[string]string) {
 	p.DefaultTags = tags

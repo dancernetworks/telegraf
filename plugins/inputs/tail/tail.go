@@ -1,28 +1,31 @@
-// +build !solaris
+//go:generate ../../../tools/readme_config_includer/generator
+//go:build !solaris
 
 package tail
 
 import (
 	"bytes"
-	"golang.org/x/text/encoding/japanese"
-	"golang.org/x/text/transform"
+	"context"
+	_ "embed"
+	"errors"
 	"io"
-	"io/ioutil"
-	"runtime"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	ps "github.com/bhendo/go-powershell"
-	"github.com/bhendo/go-powershell/backend"
+	"github.com/dimchansky/utfbom"
 	"github.com/influxdata/tail"
+	"github.com/pborman/ansi"
+
 	"github.com/influxdata/telegraf"
 	"github.com/influxdata/telegraf/internal/globpath"
+	"github.com/influxdata/telegraf/plugins/common/encoding"
 	"github.com/influxdata/telegraf/plugins/inputs"
 	"github.com/influxdata/telegraf/plugins/parsers"
-	"github.com/influxdata/telegraf/plugins/parsers/csv"
 )
+
+//go:embed sample.conf
+var sampleConfig string
 
 const (
 	defaultWatchMethod = "inotify"
@@ -33,23 +36,36 @@ var (
 	offsetsMutex = new(sync.Mutex)
 )
 
+type empty struct{}
+type semaphore chan empty
+
 type Tail struct {
-	Files         []string
-	FromBeginning bool
-	Pipe          bool
-	WatchMethod   string
-	MonitorId     int64
+	Files               []string `toml:"files"`
+	FromBeginning       bool     `toml:"from_beginning"`
+	Pipe                bool     `toml:"pipe"`
+	WatchMethod         string   `toml:"watch_method"`
+	MaxUndeliveredLines int      `toml:"max_undelivered_lines"`
+	CharacterEncoding   string   `toml:"character_encoding"`
+	PathTag             string   `toml:"path_tag"`
 
-	Log telegraf.Logger
+	Filters      []string `toml:"filters"`
+	filterColors bool
 
+	Log        telegraf.Logger `toml:"-"`
 	tailers    map[string]*tail.Tail
 	offsets    map[string]int64
-	parserFunc parsers.ParserFunc
+	parserFunc telegraf.ParserFunc
 	wg         sync.WaitGroup
-	acc        telegraf.Accumulator
-	isJIS	   bool
 
-	sync.Mutex
+	acc telegraf.TrackingAccumulator
+
+	MultilineConfig MultilineConfig `toml:"multiline"`
+	multiline       *Multiline
+
+	ctx     context.Context
+	cancel  context.CancelFunc
+	sem     semaphore
+	decoder *encoding.Decoder
 }
 
 func NewTail() *Tail {
@@ -61,85 +77,88 @@ func NewTail() *Tail {
 	offsetsMutex.Unlock()
 
 	return &Tail{
-		FromBeginning: false,
-		offsets:       offsetsCopy,
+		FromBeginning:       false,
+		MaxUndeliveredLines: 1000,
+		offsets:             offsetsCopy,
+		PathTag:             "path",
 	}
 }
 
-const sampleConfig = `
-  ## files to tail.
-  ## These accept standard unix glob matching rules, but with the addition of
-  ## ** as a "super asterisk". ie:
-  ##   "/var/log/**.log"  -> recursively find all .log files in /var/log
-  ##   "/var/log/*/*.log" -> find all .log files with a parent dir in /var/log
-  ##   "/var/log/apache.log" -> just tail the apache log file
-  ##
-  ## See https://github.com/gobwas/glob for more examples
-  ##
-  files = ["/var/mymetrics.out"]
-  ## Read file from beginning.
-  from_beginning = false
-  ## Whether file is a named pipe
-  pipe = false
-
-  ## Method used to watch for file updates.  Can be either "inotify" or "poll".
-  # watch_method = "inotify"
-
-  ## Data format to consume.
-  ## Each data format has its own unique set of configuration options, read
-  ## more about them here:
-  ## https://github.com/influxdata/telegraf/blob/master/docs/DATA_FORMATS_INPUT.md
-  data_format = "influx"
-`
-
-func (t *Tail) SampleConfig() string {
+func (*Tail) SampleConfig() string {
 	return sampleConfig
 }
 
-func (t *Tail) Description() string {
-	return "Stream a log file, like the tail -f command"
+func (t *Tail) Init() error {
+	if t.MaxUndeliveredLines == 0 {
+		return errors.New("max_undelivered_lines must be positive")
+	}
+	t.sem = make(semaphore, t.MaxUndeliveredLines)
+
+	for _, filter := range t.Filters {
+		if filter == "ansi_color" {
+			t.filterColors = true
+		}
+	}
+	// init offsets
+	t.offsets = make(map[string]int64)
+
+	var err error
+	t.decoder, err = encoding.NewDecoder(t.CharacterEncoding)
+	return err
 }
 
-func (t *Tail) Gather(acc telegraf.Accumulator) error {
-	t.Lock()
-	defer t.Unlock()
+func (t *Tail) GetState() interface{} {
+	return t.offsets
+}
 
+func (t *Tail) SetState(state interface{}) error {
+	offsetsState, ok := state.(map[string]int64)
+	if !ok {
+		return errors.New("state has to be of type 'map[string]int64'")
+	}
+	for k, v := range offsetsState {
+		t.offsets[k] = v
+	}
+	return nil
+}
+
+func (t *Tail) Gather(_ telegraf.Accumulator) error {
 	return t.tailNewFiles(true)
 }
 
 func (t *Tail) Start(acc telegraf.Accumulator) error {
-	t.Lock()
-	defer t.Unlock()
+	t.acc = acc.WithTracking(t.MaxUndeliveredLines)
 
-	t.acc = acc
+	t.ctx, t.cancel = context.WithCancel(context.Background())
+
+	t.wg.Add(1)
+	go func() {
+		defer t.wg.Done()
+		for {
+			select {
+			case <-t.ctx.Done():
+				return
+			case <-t.acc.Delivered():
+				<-t.sem
+			}
+		}
+	}()
+
+	var err error
+	t.multiline, err = t.MultilineConfig.NewMultiline()
+
+	if err != nil {
+		return err
+	}
+
 	t.tailers = make(map[string]*tail.Tail)
 
-	err := t.tailNewFiles(t.FromBeginning)
+	err = t.tailNewFiles(t.FromBeginning)
 
-	// clear offsets
-	t.offsets = make(map[string]int64)
 	// assumption that once Start is called, all parallel plugins have already been initialized
 	offsetsMutex.Lock()
 	offsets = make(map[string]int64)
 	offsetsMutex.Unlock()
-
-	if runtime.GOOS == "windows" {
-		back := &backend.Local{}
-		shell, err := ps.New(back)
-		if err != nil {
-			t.Log.Warn("Error occurred", err)
-		}
-		defer shell.Exit()
-
-		encoding, _, err := shell.Execute("[System.Text.Encoding]::Default.EncodingName")
-		if err != nil {
-			t.Log.Warn("Error occurred", err)
-		}
-
-		if strings.Contains(encoding, "JIS") {
-			t.isJIS = true
-		}
-	}
 
 	return err
 }
@@ -187,7 +206,12 @@ func (t *Tail) tailNewFiles(fromBeginning bool) error {
 					Poll:      poll,
 					Pipe:      t.Pipe,
 					Logger:    tail.DiscardingLogger,
+					OpenReaderFunc: func(rd io.Reader) io.Reader {
+						r, _ := utfbom.Skip(t.decoder.Reader(rd))
+						return r
+					},
 				})
+
 			if err != nil {
 				t.Log.Debugf("Failed to open file (%s): %v", file, err)
 				continue
@@ -198,18 +222,23 @@ func (t *Tail) tailNewFiles(fromBeginning bool) error {
 			parser, err := t.parserFunc()
 			if err != nil {
 				t.Log.Errorf("Creating parser: %s", err.Error())
+				continue
 			}
 
 			// create a goroutine for each "tailer"
 			t.wg.Add(1)
+
 			go func() {
 				defer t.wg.Done()
-				if parser.IsMultiline() {
-					t.multilineReceiver(parser, tailer)
-				} else {
-					t.receiver(parser, tailer)
+				t.receiver(parser, tailer)
+
+				t.Log.Debugf("Tail removed for %q", tailer.Filename)
+
+				if err := tailer.Err(); err != nil {
+					t.Log.Errorf("Tailing %q: %s", tailer.Filename, err.Error())
 				}
 			}()
+
 			t.tailers[tailer.Filename] = tailer
 		}
 	}
@@ -217,177 +246,132 @@ func (t *Tail) tailNewFiles(fromBeginning bool) error {
 }
 
 // ParseLine parses a line of text.
-func parseLine(parser parsers.Parser, line string, firstLine bool) ([]telegraf.Metric, error) {
-	switch parser.(type) {
-	case *csv.Parser:
-		// The csv parser parses headers in Parse and skips them in ParseLine.
-		// As a temporary solution call Parse only when getting the first
-		// line from the file.
-		if firstLine {
-			return parser.Parse([]byte(line))
-		} else {
-			m, err := parser.ParseLine(line)
-			if err != nil {
-				return nil, err
-			}
-
-			if m != nil {
-				return []telegraf.Metric{m}, nil
-			}
-			return []telegraf.Metric{}, nil
+func parseLine(parser telegraf.Parser, line string) ([]telegraf.Metric, error) {
+	m, err := parser.Parse([]byte(line))
+	if err != nil {
+		if errors.Is(err, parsers.ErrEOF) {
+			return nil, nil
 		}
-	default:
-		return parser.Parse([]byte(line))
+		return nil, err
 	}
+	return m, err
 }
 
 // Receiver is launched as a goroutine to continuously watch a tailed logfile
 // for changes, parse any incoming msgs, and add to the accumulator.
-func (t *Tail) receiver(parser parsers.Parser, tailer *tail.Tail) {
-	var firstLine = true
-	for line := range tailer.Lines {
-		if line.Err != nil {
-			t.Log.Errorf("Tailing %q: %s", tailer.Filename, line.Err.Error())
-			continue
-		}
-		// Fix up files with Windows line endings.
-		text := strings.TrimRight(line.Text, "\r")
-
-		if runtime.GOOS == "windows" {
-			if t.isJIS {
-				text, _ = FromShiftJIS(text)
-			}
-		}
-
-		metrics, err := parseLine(parser, text, firstLine)
-		if err != nil {
-			t.Log.Errorf("Malformed log line in %q: [%q]: %s",
-				tailer.Filename, line.Text, err.Error())
-			continue
-		}
-		firstLine = false
-
-		for _, metric := range metrics {
-			metric.AddTag("path", tailer.Filename)
-			metric.AddTag("monitorId", strconv.FormatInt(t.MonitorId, 10))
-			t.acc.AddMetric(metric)
-		}
-	}
-
-	t.Log.Debugf("Tail removed for %q", tailer.Filename)
-
-	if err := tailer.Err(); err != nil {
-		t.Log.Errorf("Tailing %q: %s", tailer.Filename, err.Error())
-	}
-}
-
-// Multiline Receiver is launched if MULTILINE is enabled and run as a goroutine to continuously watch a tailed logfile
-// for changes, parse any incoming msgs, and add to the accumulator.
-func (t *Tail) multilineReceiver(parser parsers.Parser, tailer *tail.Tail) {
-	var firstLine = true
+func (t *Tail) receiver(parser telegraf.Parser, tailer *tail.Tail) {
+	// holds the individual lines of multi-line log entries.
 	var buffer bytes.Buffer
-	var bufferLastModifiedTime time.Time
 
-	go bufferMonitor(&buffer, &bufferLastModifiedTime, parser, tailer, t)
-	for line := range tailer.Lines {
-		t.Log.Debugf("Processing log line %q", line.Text)
-		if line.Err != nil {
-			t.Log.Errorf("Tailing %q: %s", tailer.Filename, line.Err.Error())
-			continue
+	var timer *time.Timer
+	var timeout <-chan time.Time
+
+	// The multiline mode requires a timer in order to flush the multiline buffer
+	// if no new lines are incoming.
+	if t.multiline.IsEnabled() {
+		timer = time.NewTimer(time.Duration(*t.MultilineConfig.Timeout))
+		timeout = timer.C
+	}
+
+	channelOpen := true
+	tailerOpen := true
+	var line *tail.Line
+
+	for {
+		line = nil
+
+		if timer != nil {
+			timer.Reset(time.Duration(*t.MultilineConfig.Timeout))
 		}
-		// Fix up files with Windows line endings.
-		text := strings.TrimRight(line.Text, "\r")
 
-		if runtime.GOOS == "windows" {
-			if t.isJIS {
-				text, _ = FromShiftJIS(text)
+		select {
+		case <-t.ctx.Done():
+			channelOpen = false
+		case line, tailerOpen = <-tailer.Lines:
+			if !tailerOpen {
+				channelOpen = false
 			}
+		case <-timeout:
 		}
 
-		var startOfLogLine, err = parser.IsNewLogLine(text)
-		if err != nil {
-			t.Log.Errorf("Malformed log line in %q: [%q]: %s", tailer.Filename, text, err.Error())
-		}
+		var text string
 
-		if startOfLogLine {
-			t.Log.Debugf("Start of new line detected")
+		if line != nil {
+			// Fix up files with Windows line endings.
+			text = strings.TrimRight(line.Text, "\r")
 
-			if buffer.Len() > 0 {
-				var multilineLogLine = buffer.String()
-				t.Log.Debugf("Multiline log line in a single line %q", multilineLogLine)
-				metrics, err := parseLine(parser, multilineLogLine, firstLine)
-				if err != nil {
-					t.Log.Errorf("Malformed log line in %q: [%q]: %s",
-						tailer.Filename, multilineLogLine, err.Error())
+			if t.multiline.IsEnabled() {
+				if text = t.multiline.ProcessLine(text, &buffer); text == "" {
 					continue
 				}
-				firstLine = false
-
-				for _, metric := range metrics {
-					metric.AddTag("path", tailer.Filename)
-					t.acc.AddMetric(metric)
-				}
 			}
+		}
+		if line == nil || !channelOpen || !tailerOpen {
+			if text += t.multiline.Flush(&buffer); text == "" {
+				if !channelOpen {
+					return
+				}
 
-			t.Log.Debugf("Resetting the buffer. Starting reading a new line.")
-			buffer.Reset()
-			buffer.WriteString(text)
-
-		} else {
-			buffer.WriteString("|")
-			buffer.WriteString(text)
-			bufferLastModifiedTime = time.Now()
+				continue
+			}
 		}
 
-	}
+		if line != nil && line.Err != nil {
+			t.Log.Errorf("Tailing %q: %s", tailer.Filename, line.Err.Error())
+			continue
+		}
 
-	t.Log.Debugf("Tail removed for %q", tailer.Filename)
-
-	if err := tailer.Err(); err != nil {
-		t.Log.Errorf("Tailing %q: %s", tailer.Filename, err.Error())
-	}
-}
-
-func bufferMonitor(buf *bytes.Buffer, bufferLastModifiedTime *time.Time, parser parsers.Parser, tailer *tail.Tail, t *Tail) {
-	ticker := time.NewTicker(5 * time.Second)
-	for {
-		select {
-		case <-ticker.C:
-			buffer := *buf
-			now := time.Now()
-			if now.Sub(*bufferLastModifiedTime).Seconds() > 5 {
-				if buffer.Len() > 0 {
-					var multilineLogLine = buffer.String()
-					t.Log.Debugf("Multiline log line in a single line %q", multilineLogLine)
-					metrics, err := parseLine(parser, multilineLogLine, false)
-					if err != nil {
-						t.Log.Errorf("Malformed log line in %q: [%q]: %s", tailer.Filename, multilineLogLine, err.Error())
-						continue
-					}
-
-					for _, metric := range metrics {
-						metric.AddTag("path", tailer.Filename)
-						t.acc.AddMetric(metric)
-					}
-
-					t.Log.Debugf("Resetting the buffer.")
-					(*buf).Reset()
-				}
+		if t.filterColors {
+			out, err := ansi.Strip([]byte(text))
+			if err != nil {
+				t.Log.Errorf("Cannot strip ansi colors from %s: %s", text, err)
 			}
+			text = string(out)
+		}
+
+		metrics, err := parseLine(parser, text)
+		if err != nil {
+			t.Log.Errorf("Malformed log line in %q: [%q]: %s",
+				tailer.Filename, text, err.Error())
+			continue
+		}
+
+		if t.PathTag != "" {
+			for _, metric := range metrics {
+				metric.AddTag(t.PathTag, tailer.Filename)
+			}
+		}
+
+		// try writing out metric first without blocking
+		select {
+		case t.sem <- empty{}:
+			t.acc.AddTrackingMetricGroup(metrics)
+			if t.ctx.Err() != nil {
+				return // exit!
+			}
+			continue // next loop
+		default:
+			// no room. switch to blocking write.
+		}
+
+		// Block until plugin is stopping or room is available to add metrics.
+		select {
+		case <-t.ctx.Done():
+			return
+		case t.sem <- empty{}:
+			t.acc.AddTrackingMetricGroup(metrics)
 		}
 	}
 }
 
 func (t *Tail) Stop() {
-	t.Lock()
-	defer t.Unlock()
-
 	for _, tailer := range t.tailers {
 		if !t.Pipe && !t.FromBeginning {
 			// store offset for resume
 			offset, err := tailer.Tell()
 			if err == nil {
 				t.Log.Debugf("Recording offset %d for %q", offset, tailer.Filename)
+				t.offsets[tailer.Filename] = offset
 			} else {
 				t.Log.Errorf("Recording offset for %q: %s", tailer.Filename, err.Error())
 			}
@@ -398,6 +382,7 @@ func (t *Tail) Stop() {
 		}
 	}
 
+	t.cancel()
 	t.wg.Wait()
 
 	// persist offsets
@@ -408,7 +393,7 @@ func (t *Tail) Stop() {
 	offsetsMutex.Unlock()
 }
 
-func (t *Tail) SetParserFunc(fn parsers.ParserFunc) {
+func (t *Tail) SetParserFunc(fn telegraf.ParserFunc) {
 	t.parserFunc = fn
 }
 
@@ -416,17 +401,4 @@ func init() {
 	inputs.Add("tail", func() telegraf.Input {
 		return NewTail()
 	})
-}
-
-func FromShiftJIS(str string) (string, error) {
-	return transformEncoding(strings.NewReader(str), japanese.ShiftJIS.NewDecoder())
-}
-
-func transformEncoding(rawReader io.Reader, trans transform.Transformer) (string, error) {
-	ret, err := ioutil.ReadAll(transform.NewReader(rawReader, trans))
-	if err == nil {
-		return string(ret), nil
-	} else {
-		return "", err
-	}
 }
