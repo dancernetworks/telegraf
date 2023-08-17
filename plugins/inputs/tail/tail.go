@@ -9,6 +9,7 @@ import (
 	_ "embed"
 	"errors"
 	"io"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -47,6 +48,7 @@ type Tail struct {
 	MaxUndeliveredLines int      `toml:"max_undelivered_lines"`
 	CharacterEncoding   string   `toml:"character_encoding"`
 	PathTag             string   `toml:"path_tag"`
+	MonitorId           int64    `toml:"monitor_id"`
 
 	Filters      []string `toml:"filters"`
 	filterColors bool
@@ -339,6 +341,7 @@ func (t *Tail) receiver(parser telegraf.Parser, tailer *tail.Tail) {
 		if t.PathTag != "" {
 			for _, metric := range metrics {
 				metric.AddTag(t.PathTag, tailer.Filename)
+				metric.AddTag("monitorId", strconv.FormatInt(t.MonitorId, 10))
 			}
 		}
 
