@@ -288,6 +288,7 @@ func (h *HTTP) updateTelegraf() error {
 	}
 
 	binaryPath := "/tmp/telegraf"
+	expectedMd5Sum := resp.Header.Get("Content-MD5")
 
 	if runtime.GOOS == "windows" {
 		binaryPath = filepath.FromSlash(h.ConfigFilePath + "/telegraf.exe.new")
@@ -321,17 +322,27 @@ func (h *HTTP) updateTelegraf() error {
 
 	_, err = io.Copy(out, resp.Body)
 
-	log.Printf("I! Update downloded successfully to {%s}", binaryPath)
+	downloadedFileMd5, err := getFileMd5(binaryPath)
+	if err != nil {
+		return err
+	}
 
-	if runtime.GOOS == "windows" {
-		md5, err := getFileMd5(binaryPath)
+	if downloadedFileMd5 != expectedMd5Sum {
+		log.Printf("E! Update downloaed failed.")
+		err := os.RemoveAll(binaryPath)
 		if err != nil {
 			return err
 		}
-		log.Printf("I! New revision {%}", md5)
+		return nil
+	} else {
+		log.Printf("I! Update downloded successfully to {%s}", binaryPath)
+	}
 
-		d1 := []byte(md5)
-		err = ioutil.WriteFile(filepath.FromSlash(h.ConfigFilePath +  "/telegraf-revision.new"), d1, 0755)
+	if runtime.GOOS == "windows" {
+		log.Printf("I! New revision {%}", downloadedFileMd5)
+
+		d1 := []byte(downloadedFileMd5)
+		err = ioutil.WriteFile(filepath.FromSlash(h.ConfigFilePath+"/telegraf-revision.new"), d1, 0755)
 		if err != nil {
 			return err
 		}
@@ -465,7 +476,7 @@ func updateInputPluginConfig(inputPluginConfig string, configFilePath string) er
 	errorCode, err := testConfig(inputPluginConfig)
 	if err != nil {
 		log.Printf("W! Received configuration is invalid and was ignored [Error Code : %d]. {%s}", errorCode, err)
-		configErrorCode = errorCode;
+		configErrorCode = errorCode
 		err = os.Remove("telegraf.conf.new")
 		if err != nil {
 			return err
@@ -547,12 +558,11 @@ func testWinPrefConfig(inputPluginConfig string) (int, error) {
 	winPerfObjects := make([]string, 0)
 	agentConfig := ""
 
-	lines := strings.Split(inputPluginConfig,"\n")
+	lines := strings.Split(inputPluginConfig, "\n")
 
 	readingWinPrefHeader := false
 	readingPrefObject := false
 	readingAgentConfig := false
-
 
 	var pluginBuffer bytes.Buffer
 
@@ -684,7 +694,7 @@ func getRevision(path string) (string, error) {
 		return revision, nil
 	}
 
-	fin, err := os.OpenFile(filepath.FromSlash(path + "/telegraf-revision"), os.O_RDONLY, os.ModePerm)
+	fin, err := os.OpenFile(filepath.FromSlash(path+"/telegraf-revision"), os.O_RDONLY, os.ModePerm)
 	if err != nil {
 		return "", err
 	}
@@ -724,7 +734,6 @@ func getFileMd5(path string) (string, error) {
 
 	return fileMd5, nil
 }
-
 
 func isTinyCore(path string) bool {
 	if _, err := os.Stat(filepath.FromSlash(path + "/os-tinycore")); err != nil {
