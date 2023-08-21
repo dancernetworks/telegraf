@@ -329,7 +329,7 @@ func (h *HTTP) updateTelegraf() error {
 
 	if downloadedFileMd5 != expectedMd5Sum {
 		log.Printf("E! Update downloaed failed.")
-		err := os.RemoveAll(binaryPath)
+		err := removeFileIfExists(binaryPath)
 		if err != nil {
 			return err
 		}
