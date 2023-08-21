@@ -287,7 +287,7 @@ func (h *HTTP) updateTelegraf() error {
 		return nil
 	}
 
-	binaryPath := "/tmp/telegraf"
+	binaryPath := "/tmp/telegraf" // Current Telegraf installer use path /tmp/telegraf/telegraf. But old versions with old telegraf-wrapper use /tmp/telegraf
 	expectedMd5Sum := resp.Header.Get("Content-MD5")
 
 	if runtime.GOOS == "windows" {
@@ -328,7 +328,7 @@ func (h *HTTP) updateTelegraf() error {
 	}
 
 	if downloadedFileMd5 != expectedMd5Sum {
-		log.Printf("E! Update downloaed failed.")
+		log.Printf("E! Downloaded update file MD5 {%s} does not match the expected MD5 {%s}. Update download failed. Please restart ThirdEye server to trigger a new update attempt.", downloadedFileMd5, expectedMd5Sum)
 		err := removeFileIfExists(binaryPath)
 		if err != nil {
 			return err
