@@ -267,7 +267,8 @@ func (h *HTTP) updateTelegraf() error {
 		return err
 	}
 
-	log.Printf("I! Checking for updates... Current revision is {%s}", revision)
+	log.Printf("I! Server requested us to update. Current revision is {%s}", revision)
+	log.Printf("I! Downloading update...")
 
 	q := req.URL.Query()
 	q.Add("isWindows", strconv.FormatBool(runtime.GOOS == "windows"))
@@ -322,17 +323,32 @@ func (h *HTTP) updateTelegraf() error {
 	defer out.Close()
 
 	_, err = io.Copy(out, resp.Body)
+	if err != nil {
+		return err
+	}
 
-	log.Printf("I! Update downloded successfully to {%s}", binaryPath)
+	log.Printf("I! Update downloaded successfully to {%s}", binaryPath)
+	log.Printf("I! Verifying checksum...")
+
+	expectedChecksum := resp.Header.Get("Content-MD5")
+	actualChecksum, err := getFileMd5(binaryPath)
+	if err != nil {
+		return err
+	}
+
+	if expectedChecksum != actualChecksum {
+		log.Printf("E! Checksum mismatch (expected: %s, actual: %s)", expectedChecksum, actualChecksum)
+		removeFileIfExists(binaryPath)
+		return fmt.Errorf("checksum mismatch")
+	}
+
+	log.Printf("I! Checksum is correct (%s).", actualChecksum)
 
 	if runtime.GOOS == "windows" {
-		md5, err := getFileMd5(binaryPath)
-		if err != nil {
-			return err
-		}
-		log.Printf("I! New revision {%}", md5)
+		log.Printf("I! New revision {%s}", actualChecksum)
 
-		d1 := []byte(md5)
+		log.Printf("I! Writing revision file...")
+		d1 := []byte(actualChecksum)
 		err = ioutil.WriteFile(filepath.FromSlash(h.ConfigFilePath +  "/telegraf-revision.new"), d1, 0755)
 		if err != nil {
 			return err
@@ -344,13 +360,14 @@ func (h *HTTP) updateTelegraf() error {
 			return err
 		}
 
+		log.Printf("I! Executing update.bat...")
 		cmd := exec.Command("cmd.exe", "/C", "update.bat")
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			log.Printf("I! Error running command %s", err)
 		}
 
-		log.Printf("I! Afer requesting restart %s", string(output))
+		log.Printf("I! After requesting restart %s", string(output))
 	} else {
 		log.Printf("I! Restarting service to apply the update ...")
 		os.Exit(1)
@@ -467,7 +484,7 @@ func updateInputPluginConfig(inputPluginConfig string, configFilePath string) er
 	errorCode, err := testConfig(inputPluginConfig)
 	if err != nil {
 		log.Printf("W! Received configuration is invalid and was ignored [Error Code : %d]. {%s}", errorCode, err)
-		configErrorCode = errorCode;
+		configErrorCode = errorCode
 		err = os.Remove("telegraf.conf.new")
 		if err != nil {
 			return err
@@ -731,7 +748,6 @@ func getFileMd5(path string) (string, error) {
 
 	return fileMd5, nil
 }
-
 
 func isTinyCore(path string) bool {
 	if _, err := os.Stat(filepath.FromSlash(path + "/os-tinycore")); err != nil {
